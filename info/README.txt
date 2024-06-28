@@ -6,7 +6,7 @@ Data provided by the VIB Nucleomics core (nucleomics@vib.be).
 
 DOWNLOAD USING CURL COMMAND LINE
 
-The shared link would be like this https://nextnuc.gbiomed.kuleuven.be/index.php/s/XZYXZYXZY
+The shared link would be like this https://<server-url>/index.php/s/XZYXZYXZY
 where you could identify the token (e.g. XZYXZYXZY), and you should have received a password (e.g. we call it here l_connect_pwd).
 
         token=XZYXZYXZY
@@ -15,7 +15,7 @@ where you could identify the token (e.g. XZYXZYXZY), and you should have receive
 You need also to specify which file you want to download. Usually the data are in archive format (e.g. archive.tgz).
         FILENAME="archive.tgz"
 
-curl -C - -u "${token}:${l_connect_pwd}"  -o "${FILENAME}" "https://nextnuc.gbiomed.kuleuven.be/public.php/webdav/${FILENAME}"
+curl -C - -u "${token}:${l_connect_pwd}"  -o "${FILENAME}" "https://<server-url>/public.php/webdav/${FILENAME}"
 
 DOWNLOAD USING WRAPPER SCRIPT
 
