@@ -1,9 +1,19 @@
-runfolder: "/data/NC_projects/4767_XXXXXXX_PacBio"
-movie: "m64279e_240524_094336"
-adapterfolder: "bcM0002--bcM0002"
-samplesheet: "Exp4767_SMRTLink_Barcodefile.csv"
-outfolder: "/data/NC_projects/4767_XXXXXXX_PacBio/demux_results"
-qc_format: "html"
+runfolder: "/data/pacbio_data/250204.Revio1.FCC"
+movie: "m84247_250204_101305_s4"
+hififolder: "hifi_reads"
+bcM0001:
+  bam: "m84247_250204_101305_s4.hifi_reads.bcM0001.bam"
+  samplesheet: "Exp4886_4898_4906_bc01_SMRTLink_Barcodefile_LDS20250128_edits.csv"
+bcM0002:
+  bam: "m84247_250204_101305_s4.hifi_reads.bcM0002.bam"
+  samplesheet: "Exp4921_1_bc02_SMRTLink_Barcodefile_LDS20250128.csv"
+bcM0003:
+  bam: "m84247_250204_101305_s4.hifi_reads.bcM0003.bam"
+  samplesheet: "Exp4921_2_bc03_SMRTLink_Barcodefile_LDS20250128.csv"
+bcM0004:
+  bam: "m84247_250204_101305_s4.hifi_reads.bcM0004.bam"
+  samplesheet:  "Exp4921_3_bc04_SMRTLink_Barcodefile_LDS20250128.csv"
+outfolder: "/data/pacbio_data/250204.Revio1.FCC_demux"
 inputs: "inputs"
 skera_results: "skera_results"
 lima_results: "lima_results"
@@ -14,5 +24,6 @@ nthr_skera: 48
 nthr_lima: 48
 par_bam2fastq: 12
 nthr_bam2fastq: 4
+qc_format: "html"
 mincnt: 12000
 final_results: "final_results"

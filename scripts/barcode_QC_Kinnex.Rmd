@@ -71,7 +71,7 @@ samplenames <- suppressMessages(
 )
 
 # add combined barcode string in new column
-ccs_summary$BC.pairs <- paste0(ccs_summary$IdxFirstNamed, sep="--", ccs_summary$IdxCombinedNamed, sep='')
+ccs_summary$BC.pairs <- paste0(ccs_summary$IdxFirstNamed, sep = "--", ccs_summary$IdxCombinedNamed, sep = '')
 
 # add user provided sample names
 suppressWarnings(merged_data <- merge(ccs_summary, samplenames, by.x = "BC.pairs", by.y = "Barcode", all.x = TRUE))
@@ -118,7 +118,7 @@ ggplot(merged_data, aes(x=Counts)) +
 
 ```
 
-**legend:** the dashed-red line indicates the threshold count of 12000 reads considered too low for proper 16S classification, black lines indicate the **bottom 5%** and **top 5%** limits [`r as.integer(pc5)`; `r as.integer(pc95)`], the blue line indicates the **mean** count value across all barcodes (`r as.integer(mean)`), the green line refers to the **median** count value (`r as.integer(median)`).
+**legend:** the dashed-red line indicates the threshold count of `r mincnt` reads considered too low for proper 16S classification, black lines indicate the **bottom 5%** and **top 5%** limits [`r as.integer(pc5)`; `r as.integer(pc95)`], the blue line indicates the **mean** count value across all barcodes (`r as.integer(mean)`), the green line refers to the **median** count value (`r as.integer(median)`).
 
 ### Full result table
 
