@@ -4,8 +4,8 @@ channels:
   - conda-forge
 dependencies:
   - python=3.8
-  - lima=2.9.0
-  - pbskera=1.2.0
+  - lima=2.13.0
+  - pbskera=1.4.0
   - pbtk=3.1.1
   - r-base
   - r-essentials
