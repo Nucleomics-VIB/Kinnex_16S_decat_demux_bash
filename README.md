@@ -75,7 +75,7 @@ The fastq_results folder contains the final fastq files, ready for archiving and
 
 ## Conclusion
 
-This aggregated analysis replaces a several-step SMRT-Link process which required presence of the operator at several points in time and was not simple to run. Resource optimisation for each subtask allows rapid analysis of a typical run and delivers data ready for delivery.
+This aggregated analysis replaces a several-step SMRT-Link process which required presence of the operator at several points in time and was not simple to run. Resource optimisation for each subtask allows rapid analysis of a typical run and produces data ready for delivery.
 
 <hr>
 
