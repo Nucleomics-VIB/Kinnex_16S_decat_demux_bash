@@ -129,6 +129,10 @@ full_table <- merged_data[,c("Bio Sample", "BC.pairs", "Counts", "MeanScore")]
 suppressWarnings(full_table$prefix <- as.numeric(sub("_.*", "", full_table$`Bio Sample`)))
 full_table <- full_table[order(full_table$prefix), ]
 
+# filter out NA rows
+full_table <- full_table[full_table$`Bio Sample` != "NA", ]
+full_table <- full_table[!is.na(full_table$`Bio Sample`), ]
+
 kable(full_table[,-ncol(full_table)], row.names = FALSE,
   longtable = T) %>%
 kable_styling(latex_options = c("repeat_header"),
@@ -140,7 +144,11 @@ kable_styling(latex_options = c("repeat_header"),
 Drop-OFF samples (*) with **less than `r mincnt` reads** (PacBio arbitrary minimum value for proper 16S classification) are shown in the next table.
 
 ```{r low counts}
-low_output <- na.omit(full_table[full_table$Counts <= mincnt, ])
+
+low_output <- full_table[!is.na(full_table$Counts) & full_table$Counts <= mincnt, ]
+low_output <- low_output[rowSums(is.na(low_output)) != ncol(low_output), ]
+
+# low_output <- na.omit(full_table[full_table$Counts <= mincnt, ])
 kable(low_output[,-ncol(low_output)], row.names = FALSE,
   longtable = T) %>%
 kable_styling(latex_options = c("repeat_header"),

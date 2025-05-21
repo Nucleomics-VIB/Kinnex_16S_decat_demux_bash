@@ -19,7 +19,7 @@
 # a samplesheet linking barcode pairs to sample names (custom made)
 # All parameters have been externalised from the code and are listed in config.yaml
 
-version="2025-03-07; 1.2.0"
+version="2025-05-20; 1.2.1"
 
 # script basedir
 BASEDIR=$(dirname "$(readlink -f "$0")")
@@ -54,14 +54,13 @@ echo "#"
 echo "- runfolder: $runfolder"
 echo "- movie: $movie"
 echo "- hififolder: $hififolder"
-echo "bcM0001 BAM: $bcM0001_bam"
-echo "bcM0001 Samplesheet: $bcM0001_samplesheet"
-echo "bcM0002 BAM: $bcM0002_bam"
-echo "bcM0002 Samplesheet: $bcM0002_samplesheet"
-echo "bcM0003 BAM: $bcM0003_bam"
-echo "bcM0003 Samplesheet: $bcM0003_samplesheet"
-echo "bcM0004 BAM: $bcM0004_bam"
-echo "bcM0004 Samplesheet: $bcM0004_samplesheet"
+echo "- barcode_number: $bcnum"
+for i in "${barcode_indices[@]}"; do
+  bam_var="bcM000${i}_bam"
+  samplesheet_var="bcM000${i}_samplesheet"
+  echo "- bcM000${i} BAM: ${!bam_var}"
+  echo "- bcM000${i} Samplesheet: ${!samplesheet_var}"
+done
 echo "- outfolder: $outfolder"
 echo "- inputs: $inputs"
 echo "- skera_results: $skera_results"
@@ -76,20 +75,23 @@ echo "- nthr_bam2fastq: $nthr_bam2fastq"
 echo "- mincnt: $mincnt"
 echo "- qc_format: $qc_format"
 echo "- final_results: $final_results"
+echo "reference files:"
+echo "- ${BASEDIR}/barcode_files/MAS-Seq_Adapter_v2/mas12_primers.fasta"
+echo "- ${BASEDIR}/barcode_files/Kinnex16S_384plex_primers/Kinnex16S_384plex_primers.fasta"
 }
 
 function CopyRunData() {
 local flag_file="${outfolder}/${inputs}/CopyRunData_ok"
 
+echo -e "\n# Copying RUN data locally"
+
 # Check if the flag file exists and echo "already done" if it does
 if [ -f "${flag_file}" ]; then
-    echo "CopyRunData: already done."
+    echo -e "\nCopyRunData: already done."
     return 0 # Exit the function successfully
 fi
 
 mkdir -p "${outfolder}/${inputs}"
-
-echo -e "\n# Copying RUN data locally"
 
 # Check if the adapter folder exists
 if [ -d "${runfolder}/${hififolder}" ]; then
@@ -100,7 +102,7 @@ else
 fi
 
 # Check if the sample sheet exists
-for i in {1..4}; do
+for i in "${barcode_indices[@]}"; do
   samplesheet_var="bcM000${i}_samplesheet"
   samplesheet_file="${!samplesheet_var}"
   
@@ -120,18 +122,20 @@ touch "${flag_file}"
 function SkeraSplit {
 local flag_file="${outfolder}/${skera_results}/SkeraSplit_ok"
 
+echo -e "\n# Running Skera de-concatenation"
+
 # Check if the flag file exists and echo "already done" if it does
 if [ -f "${flag_file}" ]; then
-    echo "SkeraSplit: already done."
+    echo -e "\nSkeraSplit: already done."
     return 0 # Exit the function successfully
 fi
 
-mkdir -p "${outfolder}/${skera_results}/bc0"{1..4}
-
-echo -e "\n# Running Skera de-concatenation"
+for i in "${barcode_indices[@]}"; do
+mkdir -p "${outfolder}/${skera_results}/bc0${i}"
+done
 
 # run for each bc bam file and samplesheet
-for i in {1..4}; do
+for i in "${barcode_indices[@]}"; do
   bam_var="${movie}.hifi_reads.bcM000${i}.bam"
   bam_file="${outfolder}/${inputs}/${bam_var}"
 
@@ -161,17 +165,19 @@ touch "${flag_file}"
 function Lima() {
 local flag_file="${outfolder}/${lima_results}/Lima_ok"
 
+echo -e "\n# Running Lima demultiplexing"
+
 # Check if the flag file exists and echo "already done" if it does
 if [ -f "${flag_file}" ]; then
-    echo "Lima: already done."
+    echo -e "\nLima: already done."
     return 0 # Exit the function successfully
 fi
 
-mkdir -p "${outfolder}/${lima_results}/bc0"{1..4}
+for i in "${barcode_indices[@]}"; do
+mkdir -p "${outfolder}/${lima_results}/bc0${i}"
+done
 
-echo -e "\n# Running Lima demultiplexing"
-
-for i in {1..4}; do
+for i in "${barcode_indices[@]}"; do
   bam_file="${outfolder}/${skera_results}/bc0${i}/skera.bam"
   samplesheet_var="bcM000${i}_samplesheet"
   samplesheet_file="${outfolder}/${inputs}/${!samplesheet_var}"
@@ -191,7 +197,7 @@ for i in {1..4}; do
       --log-file ${outfolder}/${lima_results}/lima_run_bc0${i}-log.txt"
 
     echo "# ${cmd}"
-    eval ${cmd}
+    #eval ${cmd}
 
     echo -e "# Creating barcode QC report"
     projectnum=$(basename ${samplesheet_file} | cut -d "_" -f 1 | tr -d "\n")
@@ -220,15 +226,19 @@ touch "${flag_file}"
 function bam2fastq() {
 local flag_file="${outfolder}/${fastq_results}/bam2fastq_ok"
 
+echo -e "\n# Converting BAM data to FastQ and renaming samples"
+
 # Check if the flag file exists and echo "already done" if it does
 if [ -f "${flag_file}" ]; then
-    echo "bam2fastq: already done."
+    echo -e "\nbam2fastq: already done."
     return 0 # Exit the function successfully
 fi
 
-mkdir -p "${outfolder}/${fastq_results}/bc0"{1..4}
+for i in "${barcode_indices[@]}"; do
+mkdir -p "${outfolder}/${fastq_results}/bc0${i}"
+done
 
-for i in {1..4}; do
+for i in "${barcode_indices[@]}"; do
   lima_folder="${outfolder}/${lima_results}/bc0${i}"
   samplesheet_var="bcM000${i}_samplesheet"
   samplesheet_file="${outfolder}/${inputs}/${!samplesheet_var}"
@@ -327,6 +337,22 @@ done
 # Read config in and prepare data and folders
 eval "$(parse_yaml "$CONFIG_FILE")"
 
+# --- Barcode detection logic ---
+declare -a barcode_indices=()
+for var in $(compgen -A variable | grep -E '^bcM[0-9]{4}_bam$'); do
+  bam_val="${!var}"
+  idx=$(echo "$var" | sed -E 's/^bcM0*([0-9]+)_bam$/\1/')
+  base="bcM$(printf "%04d" "$idx")"
+  samplesheet_var="${base}_samplesheet"
+  samplesheet_val="${!samplesheet_var}"
+  if [[ -n "$bam_val" || -n "$samplesheet_val" ]]; then
+    barcode_indices+=("$idx")
+  fi
+done
+bcnum=${#barcode_indices[@]}
+
+echo "# found ${bcnum} barcoded bam HiFi files"
+
 # create output folder
 mkdir -p "${outfolder}"
 
@@ -343,6 +369,7 @@ time CopyRunData
 time SkeraSplit
 
 time Lima
+exit 0
 
 time bam2fastq
 
@@ -413,7 +440,7 @@ local flag_file="Archive_ok"
 # Check if the flag file exists and echo "already done" if it does
 if [ -f "# create barcode plots
 ${flag_file}" ]; then
-    echo "createArchive: already done."
+    echo -e  "\ncreateArchive: already done."
     return 0 # Exit the function successfully
 fi
 
