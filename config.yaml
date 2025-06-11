@@ -18,6 +18,7 @@ inputs: "inputs"
 skera_results: "skera_results"
 lima_results: "lima_results"
 fastq_results: "fastq_results"
+lima_min_len: 50
 log_skera: "INFO"
 log_lima: "INFO"
 nthr_skera: 48

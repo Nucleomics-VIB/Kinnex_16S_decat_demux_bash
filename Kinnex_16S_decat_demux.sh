@@ -19,6 +19,10 @@
 # a samplesheet linking barcode pairs to sample names (custom made)
 # All parameters have been externalised from the code and are listed in config.yaml
 
+# improve error handling and report
+set -euo pipefail
+IFS=$'\n\t'
+
 version="2025-05-20; 1.2.1"
 
 # script basedir
@@ -31,11 +35,12 @@ myenv="Kinnex_16S_decat_demux_env"
 ################################
 
 function parse_yaml() {
-    local prefix=$2
+    local yaml_file=$1
+    local prefix="${2:-}"
     local s='[[:space:]]*' w='[a-zA-Z0-9_]*' fs=$(echo @|tr @ '\034')
     sed -ne "s|^\($s\):|\1|" \
          -e "s|^\($s\)\($w\)$s:$s[\"']\(.*\)[\"']$s\$|\1$fs\2$fs\3|p" \
-         -e "s|^\($s\)\($w\)$s:$s\(.*\)$s\$|\1$fs\2$fs\3|p" $1 |
+         -e "s|^\($s\)\($w\)$s:$s\(.*\)$s\$|\1$fs\2$fs\3|p" "$yaml_file" |
     awk -F$fs '{
         indent = length($1)/2;
         vname[indent] = $2;
@@ -66,6 +71,7 @@ echo "- inputs: $inputs"
 echo "- skera_results: $skera_results"
 echo "- lima_results: $lima_results"
 echo "- fastq_results: $fastq_results"
+echo "- lima_min_len: $lima_min_len"
 echo "- log_skera: $log_skera"
 echo "- log_lima: $log_lima"
 echo "- nthr_skera: $nthr_skera"
@@ -95,7 +101,7 @@ mkdir -p "${outfolder}/${inputs}"
 
 # Check if the adapter folder exists
 if [ -d "${runfolder}/${hififolder}" ]; then
-    cp ${runfolder}/${hififolder}/*bc*.bam* ${outfolder}/${inputs}/
+    cp "${runfolder}/${hififolder}"/*bc*.bam* "${outfolder}/${inputs}/"
 else
     echo "HiFi folder not found: ${runfolder}/${hififolder}"
     return 1 # Exit the function with an error status
@@ -189,6 +195,7 @@ for i in "${barcode_indices[@]}"; do
       ${BASEDIR}/barcode_files/Kinnex16S_384plex_primers/Kinnex16S_384plex_primers.fasta \
       ${outfolder}/${lima_results}/bc0${i}/HiFi.bam \
       --hifi-preset ASYMMETRIC \
+      --min-length ${lima_min_len} \
       --split-named \
       --split-subdirs \
       --biosample-csv ${samplesheet_file} \
@@ -197,7 +204,7 @@ for i in "${barcode_indices[@]}"; do
       --log-file ${outfolder}/${lima_results}/lima_run_bc0${i}-log.txt"
 
     echo "# ${cmd}"
-    #eval ${cmd}
+    eval ${cmd}
 
     echo -e "# Creating barcode QC report"
     projectnum=$(basename ${samplesheet_file} | cut -d "_" -f 1 | tr -d "\n")
@@ -210,7 +217,7 @@ for i in "${barcode_indices[@]}"; do
       -s ${samplesheet_file}"
     
     echo "# ${cmd}"
-    eval ${cmd} && mv barcode_QC_Kinnex.* ${outfolder}/${lima_results}/bc0${i}/
+    eval ${cmd} && mv barcode_QC_Kinnex.* "${outfolder}/${lima_results}/bc0${i}/"
 
   else
     echo "One or both files are missing"
@@ -288,8 +295,25 @@ touch "${flag_file}"
 ##########  MAIN SCRIPT ##########
 ##################################
 
+usage() {
+  cat << EOF
+Usage: $(basename "$0") -c <config.yaml>
+
+Options:
+  -c <config.yaml>   Path to the YAML configuration file (required).
+
+Description:
+  This script demultiplexes PacBio Kinnex 16S sequencing data using skera and lima.
+  All parameters are externalized in the config.yaml file.
+
+Example:
+  $(basename "$0") -c my_config.yaml
+
+EOF
+}
+
 # Process command-line arguments
-while getopts "c:" opt; do
+while getopts "c:h" opt; do
   case "$opt" in
     c)
       CONFIG_FILE="$OPTARG"
@@ -298,6 +322,10 @@ while getopts "c:" opt; do
       echo "Invalid option: -$OPTARG" >&2
       usage
       exit 1
+      ;;
+    h)
+      usage
+      exit 0
       ;;
     :)
       echo "Option -$OPTARG requires an argument." >&2
@@ -364,109 +392,43 @@ exec &> >(tee -a "${outfolder}/runlog.txt")
 PrintConfig
 
 # Run the pipeline steps
-time CopyRunData
-
-time SkeraSplit
-
-time Lima
-exit 0
-
-time bam2fastq
+time CopyRunData || { echo "CopyRunData failed"; exit 1; }
+time SkeraSplit   || { echo "SkeraSplit failed"; exit 1; }
+time Lima         || { echo "Lima failed"; exit 1; }
+time bam2fastq    || { echo "bam2fastq failed"; exit 1; }
 
 exit 0
 
+########## future additions
 
+copy the lima simmaries to data_transfer
 
+#!/bin/bash
 
+# List of barcodes
+barcodes=(bc01 bc02 bc03 bc04)
 
+# Output directory
+outdir="data_transfer/demux_results"
+mkdir -p "$outdir"
 
-
-
-
-#########################
-####### leftovers #######
-#########################
-
-#time BundleResults
-
-#time createArchive
-
-function BundleResults() {
-local flag_file="${outfolder}/BundleResults_ok"
-
-# Check if the flag file exists and echo "already done" if it does
-if [ -f "${flag_file}" ]; then
-    echo "BundleResults: already done."
-    return 0 # Exit the function successfully
-fi
-
-mkdir -p "${outfolder}/${final_results}"
-
-echo -e "\n# Copying files to final_result folder for transfer"
-
-# copy run_QC from RUN folder
-cp ${runfolder}/*.pdf ${outfolder}/${final_results}/
-
-# copy Zymo control PDF anad README.txt
-cp -r info ${outfolder}/${final_results}/
-
-cp ${outfolder}/${inputs}/${samplesheet} ${outfolder}/${final_results}/
-cp ${outfolder}/${skera_results}/${movie}.skera.summary.csv ${outfolder}/${final_results}/skera.summary.csv
-cp ${outfolder}/${lima_results}/HiFi.lima.* ${outfolder}/${final_results}/
-
-# move fastq to save room
-mv ${outfolder}/${fastq_results} ${outfolder}/${final_results}/
-
-echo -e "# Creating barcode QC report"
-projectnum=$(echo ${samplesheet} | cut -d "_" -f 1 | tr -d "\n")
-cmd="${BASEDIR}/scripts/barcode_QC_Kinnex.sh \
-  -i ${outfolder}/${final_results}/HiFi.lima.counts \
-  -r scripts/barcode_QC_Kinnex.Rmd \
-  -m ${mincnt} \
-  -f ${qc_format} \
-  -p ${projectnum} \
-  -s ${outfolder}/${inputs}/${samplesheet}"
-
-echo "# ${cmd}"
-eval ${cmd} && mv barcode_QC_Kinnex.${qc_format} ${outfolder}/${final_results}/
-
-# Write the flag file upon successful completion
-touch "$flag_file"
-}
-
-function createArchive() {
-local flag_file="Archive_ok"
-
-# Check if the flag file exists and echo "already done" if it does
-if [ -f "# create barcode plots
-${flag_file}" ]; then
-    echo -e  "\ncreateArchive: already done."
-    return 0 # Exit the function successfully
-fi
-
-echo -e "\n# Creating TGZ archive of ${final_results} and its md5sum"
-
-thr=8
-pfx="$(echo ${samplesheet} | cut -d '_' -f 1 | tr -d '\n')_archive"
-
-cd ${outfolder}
-{ tar cvf - "${final_results}" \
-  | pigz -p ${thr} \
-  | tee >(md5sum > ${pfx}.tgz_md5.txt) > ${pfx}.tgz; \
-  } 2> ${pfx}_content.log
-
-echo -e "# archive ${pfx}.tgz and md5sum ${pfx}.tgz_md5.txt were created"
-# fix file path in md5sum
-sed -i "s|-|${pfx}.tgz|g" ${pfx}.tgz_md5.txt
-
-echo -e "\n# Checking md5sum"
-md5sum -c ${pfx}.tgz_md5.txt | tee -a ${pfx}.tgz_md5-check.txt
-
-# write flag if checksum is OK
-if grep -q "OK" "${pfx}.tgz_md5-check.txt"; then
-    # Write the flag file upon successful completion
-    touch "$flag_file"
-else
-    echo "Flag file not created. Verification failed."
-fi
-}
+# Loop over each barcode
+for bc in "${barcodes[@]}"; do
+    for file in HiFi.lima.counts HiFi.lima.summary barcode_QC_Kinnex.html; do
+        src="lima_results/${bc}/${file}"
+        if [[ -f "$src" ]]; then
+            # Insert barcode before extension
+            base="${file%.*}"
+            ext="${file##*.}"
+            # Handle files with no extension
+            if [[ "$base" == "$file" ]]; then
+                newname="${base}_${bc}"
+            else
+                newname="${base}_${bc}.${ext}"
+            fi
+            cp "$src" "$outdir/$newname"
+        else
+            echo "Warning: $src does not exist."
+        fi
+    done
+done
