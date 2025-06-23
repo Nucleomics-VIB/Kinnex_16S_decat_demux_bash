@@ -65,6 +65,12 @@ ccs_summary <- suppressMessages(
 ccs_summary <- ccs_summary[ccs_summary$IdxFirst != -1, ]
 
 # load samplesheet to get sample names from
+# First, check if the file ends with a newline and add debugging
+samplesheet_content <- readLines(params$samplesheet, warn = FALSE)
+cat("Last few lines of samplesheet:\n")
+cat(tail(samplesheet_content, 3), sep = "\n")
+cat("Number of lines read:", length(samplesheet_content), "\n")
+
 samplenames <- suppressMessages(
   read_delim(params$samplesheet,
     delim = ",",
@@ -73,11 +79,44 @@ samplenames <- suppressMessages(
     show_col_types = FALSE)
 )
 
+# Check for incomplete or corrupted rows in samplenames
+cat("Samplenames dimensions:", nrow(samplenames), "x", ncol(samplenames), "\n")
+cat("Column names:", paste(colnames(samplenames), collapse = ", "), "\n")
+
+# Remove any rows with NA or empty values in critical columns
+if ("Bio Sample" %in% colnames(samplenames)) {
+  initial_rows <- nrow(samplenames)
+  samplenames <- samplenames[!is.na(samplenames$`Bio Sample`) & 
+                            samplenames$`Bio Sample` != "" &
+                            samplenames$`Bio Sample` != "NA", ]
+  cat("Removed", initial_rows - nrow(samplenames), "rows with missing/invalid Bio Sample names\n")
+}
+
+# Clean up Bio Sample column for encoding issues
+if ("Bio Sample" %in% colnames(samplenames)) {
+  samplenames$`Bio Sample` <- iconv(samplenames$`Bio Sample`, to = "UTF-8", sub = "")
+  samplenames$`Bio Sample` <- gsub("[^\x20-\x7E]", "", samplenames$`Bio Sample`)
+}
+
 # add combined barcode string in new column
 ccs_summary$BC.pairs <- paste0(ccs_summary$IdxFirstNamed, sep = "--", ccs_summary$IdxCombinedNamed, sep = '')
 
 # add user provided sample names
 suppressWarnings(merged_data <- merge(ccs_summary, samplenames, by.x = "BC.pairs", by.y = "Barcode", all.x = TRUE))
+
+# Additional data validation for merged data
+cat("Merged data dimensions:", nrow(merged_data), "x", ncol(merged_data), "\n")
+if ("Bio Sample" %in% colnames(merged_data)) {
+  cat("Bio Sample values with issues:\n")
+  problematic <- merged_data[is.na(merged_data$`Bio Sample`) | 
+                            merged_data$`Bio Sample` == "" |
+                            merged_data$`Bio Sample` == "NA", ]
+  if (nrow(problematic) > 0) {
+    cat("Found", nrow(problematic), "problematic Bio Sample entries\n")
+  } else {
+    cat("No problematic Bio Sample entries found\n")
+  }
+}
 
 ```
 
@@ -85,13 +124,39 @@ The mosaic plot of barcode counts is shown next.
 
 
 ```{r plot mosaic, fig.width=8, fig.height=6}
-treemap(merged_data,
-        index='Bio Sample',
-        vSize="Counts",
-        type="index",
-        title="",
-        fontsize.labels=8,
-        lowerbound.cex.labels=0)
+# Additional validation before creating treemap
+valid_merged_data <- merged_data
+
+# Ensure Bio Sample column exists and is valid
+if (!"Bio Sample" %in% colnames(valid_merged_data)) {
+  cat("Warning: 'Bio Sample' column not found, using BC.pairs instead\n")
+  valid_merged_data$`Bio Sample` <- valid_merged_data$BC.pairs
+}
+
+# Filter out any remaining problematic rows
+valid_merged_data <- valid_merged_data[!is.na(valid_merged_data$`Bio Sample`) & 
+                                      valid_merged_data$`Bio Sample` != "" &
+                                      valid_merged_data$`Bio Sample` != "NA" &
+                                      !is.na(valid_merged_data$Counts) &
+                                      valid_merged_data$Counts > 0, ]
+
+# Check if we have valid data for treemap
+if (nrow(valid_merged_data) > 0 && "Bio Sample" %in% colnames(valid_merged_data)) {
+  # Additional encoding cleanup for treemap labels
+  valid_merged_data$`Bio Sample` <- iconv(valid_merged_data$`Bio Sample`, to = "UTF-8", sub = "byte")
+  
+  treemap(valid_merged_data,
+          index='Bio Sample',
+          vSize="Counts",
+          type="index",
+          title="",
+          fontsize.labels=8,
+          lowerbound.cex.labels=0)
+} else {
+  plot.new()
+  text(0.5, 0.5, paste("No valid data available for treemap\nRows available:", nrow(valid_merged_data)), 
+       cex = 1.2, col = "red")
+}
 ```
 
 *Note:* very low barcode counts will result into small polygons without a readable label, please refer to next table for full details.

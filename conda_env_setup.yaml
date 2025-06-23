@@ -25,6 +25,7 @@ dependencies:
   - r-stringr
   - dos2unix
   - pigz
+  - yq
 variables:
   R_HOME: /opt/miniconda3/envs/Kinnex_16S_decat_demux_env/lib/R
   R_LIBS: /opt/miniconda3/envs/Kinnex_16S_decat_demux_env/lib/R/library
