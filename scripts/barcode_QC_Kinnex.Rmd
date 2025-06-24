@@ -80,8 +80,8 @@ samplenames <- suppressMessages(
 )
 
 # Check for incomplete or corrupted rows in samplenames
-cat("Samplenames dimensions:", nrow(samplenames), "x", ncol(samplenames), "\n")
-cat("Column names:", paste(colnames(samplenames), collapse = ", "), "\n")
+#cat("Samplenames dimensions:", nrow(samplenames), "x", ncol(samplenames), "\n")
+#cat("Column names:", paste(colnames(samplenames), collapse = ", "), "\n")
 
 # Remove any rows with NA or empty values in critical columns
 if ("Bio Sample" %in% colnames(samplenames)) {
@@ -89,7 +89,7 @@ if ("Bio Sample" %in% colnames(samplenames)) {
   samplenames <- samplenames[!is.na(samplenames$`Bio Sample`) & 
                             samplenames$`Bio Sample` != "" &
                             samplenames$`Bio Sample` != "NA", ]
-  cat("Removed", initial_rows - nrow(samplenames), "rows with missing/invalid Bio Sample names\n")
+  #cat("Removed", initial_rows - nrow(samplenames), "rows with missing/invalid Bio Sample names\n")
 }
 
 # Clean up Bio Sample column for encoding issues
@@ -105,16 +105,16 @@ ccs_summary$BC.pairs <- paste0(ccs_summary$IdxFirstNamed, sep = "--", ccs_summar
 suppressWarnings(merged_data <- merge(ccs_summary, samplenames, by.x = "BC.pairs", by.y = "Barcode", all.x = TRUE))
 
 # Additional data validation for merged data
-cat("Merged data dimensions:", nrow(merged_data), "x", ncol(merged_data), "\n")
+#cat("Merged data dimensions:", nrow(merged_data), "x", ncol(merged_data), "\n")
 if ("Bio Sample" %in% colnames(merged_data)) {
-  cat("Bio Sample values with issues:\n")
+  #cat("Bio Sample values with issues:\n")
   problematic <- merged_data[is.na(merged_data$`Bio Sample`) | 
                             merged_data$`Bio Sample` == "" |
                             merged_data$`Bio Sample` == "NA", ]
   if (nrow(problematic) > 0) {
-    cat("Found", nrow(problematic), "problematic Bio Sample entries\n")
+    #cat("Found", nrow(problematic), "problematic Bio Sample entries\n")
   } else {
-    cat("No problematic Bio Sample entries found\n")
+    #cat("No problematic Bio Sample entries found\n")
   }
 }
 

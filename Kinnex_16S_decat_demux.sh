@@ -6,6 +6,7 @@
 # Stephane Plaisance - VIB-NC 2024-06-03 v1.0
 # small edits in the header below: v1.0.1
 # rewritten to improve file structure: v1.1.0
+# added samplesheet validation: v1.2.2
 #
 # visit our Git: https://github.com/Nucleomics-VIB
 
@@ -23,12 +24,15 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-version="2025-05-20; 1.2.1"
+version="2025-06-24; 1.2.2"
 
 # script basedir
 BASEDIR=$(dirname "$(readlink -f "$0")")
 
 myenv="Kinnex_16S_decat_demux_env"
+
+# prefix used to extract barcode pair from BAM filenames
+bam_prefix="HiFi."
 
 ################################
 ########## FUNCTIONS ###########
@@ -86,6 +90,103 @@ echo "- ${BASEDIR}/barcode_files/MAS-Seq_Adapter_v2/mas12_primers.fasta"
 echo "- ${BASEDIR}/barcode_files/Kinnex16S_384plex_primers/Kinnex16S_384plex_primers.fasta"
 }
 
+function check_csv() {
+local csv_file="$1"
+
+echo -e "\n# Validating CSV samplesheet: $(basename $csv_file)"
+
+# Check if file exists
+if [ ! -f "$csv_file" ]; then
+    echo "Error: CSV file not found: $csv_file"
+    return 1
+fi
+
+# Convert to Unix format and remove any BOM
+local temp_csv=$(mktemp)
+dos2unix < "$csv_file" > "$temp_csv" 2>/dev/null
+
+# Check for Windows line endings (CR+LF) or Mac line endings (CR only) in original file
+if grep -q $'\r' "$csv_file"; then
+    echo "Error: CSV file contains carriage return characters (^M). Please use Unix line endings (LF only)"
+    rm "$temp_csv"
+    return 1
+fi
+
+# Check header (first line)
+local header=$(head -n 1 "$temp_csv")
+if [ "$header" != "Barcode,Bio Sample" ]; then
+    echo "Error: CSV header must be exactly 'Barcode,Bio Sample', found: '$header'"
+    rm "$temp_csv"
+    return 1
+fi
+
+# Arrays to track duplicates
+local -a barcodes_seen=()
+local -a biosamples_seen=()
+
+# Check each data row (skip header)
+local line_num=1
+while IFS= read -r line; do
+    ((line_num++))
+    
+    # Skip empty lines
+    [ -z "$line" ] && continue
+    
+    # Count columns (commas + 1)
+    local col_count=$(echo "$line" | tr -cd ',' | wc -c)
+    ((col_count++))
+    
+    if [ "$col_count" -ne 2 ]; then
+        echo "Error: Line $line_num must have exactly 2 columns, found $col_count: '$line'"
+        rm "$temp_csv"
+        return 1
+    fi
+    
+    # Extract both columns
+    local barcode=$(echo "$line" | cut -d, -f1)
+    local bio_sample=$(echo "$line" | cut -d, -f2)
+    
+    # Check if Bio Sample is empty
+    if [ -z "$bio_sample" ]; then
+        echo "Error: Line $line_num has empty Bio Sample column: '$line'"
+        rm "$temp_csv"
+        return 1
+    fi
+    
+    # Check if Bio Sample contains only valid characters (a-z, A-Z, 0-9, -, _, .)
+    if [[ ! "$bio_sample" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
+        echo "Error: Line $line_num Bio Sample '$bio_sample' contains invalid characters. Only a-z, A-Z, 0-9, -, _, . are allowed"
+        rm "$temp_csv"
+        return 1
+    fi
+    
+    # Check for duplicate barcodes
+    for seen_barcode in "${barcodes_seen[@]}"; do
+        if [ "$barcode" = "$seen_barcode" ]; then
+            echo "Error: Line $line_num has duplicate barcode '$barcode'"
+            rm "$temp_csv"
+            return 1
+        fi
+    done
+    barcodes_seen+=("$barcode")
+    
+    # Check for duplicate bio samples
+    for seen_biosample in "${biosamples_seen[@]}"; do
+        if [ "$bio_sample" = "$seen_biosample" ]; then
+            echo "Error: Line $line_num has duplicate Bio Sample name '$bio_sample'"
+            rm "$temp_csv"
+            return 1
+        fi
+    done
+    biosamples_seen+=("$bio_sample")
+    
+done < <(tail -n +2 "$temp_csv")
+
+rm "$temp_csv"
+echo "CSV validation passed: $(basename $csv_file)"
+return 0
+}
+
 function CopyRunData() {
 local flag_file="${outfolder}/${inputs}/CopyRunData_ok"
 
@@ -113,6 +214,12 @@ for i in "${barcode_indices[@]}"; do
   samplesheet_file="${!samplesheet_var}"
   
   if [ -f "$runfolder/$samplesheet_file" ]; then
+    # Validate CSV format before copying
+    if ! check_csv "$runfolder/$samplesheet_file"; then
+      echo "CSV validation failed for $samplesheet_file"
+      return 1
+    fi
+    
     cp "${runfolder}/$samplesheet_file" "${outfolder}/${inputs}/"
     echo "Copied $samplesheet_file to ${outfolder}/${inputs}/"
   else
@@ -217,7 +324,17 @@ for i in "${barcode_indices[@]}"; do
       -s ${samplesheet_file}"
     
     echo "# ${cmd}"
-    eval ${cmd} && mv barcode_QC_Kinnex.* "${outfolder}/${lima_results}/bc0${i}/"
+    if eval ${cmd}; then
+      # Move QC files if they exist
+      if ls barcode_QC_Kinnex.* 1> /dev/null 2>&1; then
+        mv barcode_QC_Kinnex.* "${outfolder}/${lima_results}/bc0${i}/"
+      else
+        echo "Warning: No barcode_QC_Kinnex.* files found to move"
+      fi
+    else
+      echo "Error: barcode_QC_Kinnex.sh failed"
+      return 1
+    fi
 
   else
     echo "One or both files are missing"
@@ -261,9 +378,28 @@ for i in "${barcode_indices[@]}"; do
     for bam in $(find ${lima_folder} -name "*.bam"); do
     # rename sample from samplesheet 'Bio Sample'
     pfx=$(basename ${bam%.bam})
-    bcpair=${pfx#HiFi.}
+    bcpair=${pfx#${bam_prefix}}
+    
+    # Check if barcode pair exists in samplesheet
+    if ! grep -q "${bcpair}" "${samplesheet_file}"; then
+      echo "Error: Sample name not found in the samplesheet for barcode pair ${bcpair}"
+      return 1
+    fi
+    
     biosample=$(grep ${bcpair} ${samplesheet_file} | \
       dos2unix | cut -d, -f 2 | tr -d "\n" | tr ' ' '_')
+    
+    # Verify that biosample is not empty and contains valid characters
+    if [[ -z "${biosample}" ]]; then
+      echo "Error: Sample name not found in the samplesheet for barcode pair ${bcpair}"
+      return 1
+    fi
+    
+    # Check if biosample contains only valid filename characters (alphanumeric, underscore, hyphen, dot)
+    if [[ ! "${biosample}" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
+      echo "Error: Sample name not found in the samplesheet for barcode pair ${bcpair}"
+      return 1
+    fi
 
     echo "$(which bam2fastq) \
         ${bam} \
