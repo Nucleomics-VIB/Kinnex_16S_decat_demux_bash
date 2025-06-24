@@ -341,6 +341,8 @@ for i in "${barcode_indices[@]}"; do
     return 1 # Exit the function with an error status
   fi
 
+echo -e "\n"
+
 done
 
 # Write the flag file upon successful completion
