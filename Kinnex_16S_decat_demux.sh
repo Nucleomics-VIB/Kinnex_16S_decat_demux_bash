@@ -7,6 +7,7 @@
 # small edits in the header below: v1.0.1
 # rewritten to improve file structure: v1.1.0
 # added samplesheet validation: v1.2.2
+# added post_processing: v2.0.0
 #
 # visit our Git: https://github.com/Nucleomics-VIB
 
@@ -24,7 +25,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-version="2025-06-24; 1.2.2"
+version="2025-06-24; 2.0.0"
 
 # script basedir
 BASEDIR=$(dirname "$(readlink -f "$0")")
@@ -427,6 +428,183 @@ done
 touch "${flag_file}"
 }
 
+function post_processing() {
+local flag_file="${outfolder}/post_processing_ok"
+
+echo -e "\n# Post-processing: preparing outputs for delivery"
+
+# Check if the flag file exists and echo "already done" if it does
+if [ -f "${flag_file}" ]; then
+    echo -e "\npost_processing: already done."
+    return 0 # Exit the function successfully
+fi
+
+# Create run_QC directory for delivery outputs
+local qc_dir="${outfolder}/run_QC"
+mkdir -p "${qc_dir}"
+
+echo "# Collecting QC files from lima results"
+
+# Find all relevant files in lima_results (excluding flag files and report files)
+find "${outfolder}/${lima_results}" -maxdepth 2 -type f \
+    -not -name "Lima_ok" \
+    -not -name "HiFi.lima.report" \
+    -not -name "*-log.txt" \
+    -not -name "*.xml" \
+    -not -name "*.json" | while read -r file; do
+    
+    # Extract barcode pattern (bc0X) from the file path
+    barcode_pattern=$(echo "$file" | grep -o 'bc0[0-4]')
+    
+    # If barcode pattern is found, copy file with renamed format
+    if [ -n "$barcode_pattern" ]; then
+        filename=$(basename "$file")
+        destination="${qc_dir}/${barcode_pattern}_${filename}"
+        
+        echo "  Copying $(basename "$file") -> ${barcode_pattern}_${filename}"
+        cp "$file" "$destination"
+    fi
+done
+
+echo "# Collecting CSV samplesheet files"
+
+# Copy CSV samplesheet files used for lima
+for i in "${barcode_indices[@]}"; do
+    samplesheet_var="bcM000${i}_samplesheet"
+    samplesheet_file="${outfolder}/${inputs}/${!samplesheet_var}"
+    
+    if [ -f "$samplesheet_file" ]; then
+        filename=$(basename "$samplesheet_file")
+        destination="${qc_dir}/bc0${i}_${filename}"
+        
+        echo "  Copying samplesheet $(basename "$samplesheet_file") -> bc0${i}_${filename}"
+        cp "$samplesheet_file" "$destination"
+    else
+        echo "  Warning: Samplesheet file not found: $samplesheet_file"
+    fi
+done
+
+echo "# QC files prepared in: ${qc_dir}"
+
+# Check for and copy movie report PDF if it exists
+local movie_report="${outfolder}/${movie}.report.pdf"
+if [ -f "$movie_report" ]; then
+    echo "# Copying movie report PDF"
+    cp "$movie_report" "${qc_dir}/"
+    echo "  Copied ${movie}.report.pdf to run_QC"
+else
+    echo "# Movie report PDF not found: ${movie}.report.pdf"
+fi
+
+# Merge FASTQ results if multiple barcode subfolders exist
+merge_fastq_results
+
+echo "# Post-processing completed successfully"
+
+# Write the flag file upon successful completion
+touch "${flag_file}"
+}
+
+function merge_fastq_results() {
+local fastq_dir="${outfolder}/${fastq_results}"
+local final_dir="${outfolder}/fastq_final"
+local flag_file="${final_dir}/merge_fastq_results_ok"
+
+echo -e "\n# Checking barcode subfolders in fastq results"
+
+# Check if the flag file exists and echo "already done" if it does
+if [ -f "${flag_file}" ]; then
+    echo -e "\nmerge_fastq_results: already done."
+    return 0 # Exit the function successfully
+fi
+
+# Count the number of bc subfolders using mapfile
+mapfile -t bc_folders < <(find "$fastq_dir" -maxdepth 1 -type d -name "bc0*" 2>/dev/null)
+local bc_count=${#bc_folders[@]}
+
+echo "# Found $bc_count barcode subfolder(s) in fastq results"
+
+if [ "$bc_count" -eq 0 ]; then
+    echo "# No barcode subfolders found, skipping processing"
+    return 0
+elif [ "$bc_count" -eq 1 ]; then
+    echo "# Single barcode subfolder found, copying files directly to fastq_final"
+    mkdir -p "$final_dir"
+    
+    # Copy all FASTQ files from the single bc folder directly to fastq_final
+    local single_bc_folder="${bc_folders[0]}"
+    while IFS= read -r -d '' file; do
+        filename=$(basename "$file")
+        echo "  Copying $filename"
+        cp "$file" "$final_dir/$filename"
+    done < <(find "$single_bc_folder" -type f \( -name "*.fastq*" -o -name "*.fq*" \) -print0 2>/dev/null)
+    
+    echo "# FASTQ files copied to: $final_dir"
+    
+    # Write the flag file upon successful completion
+    touch "${flag_file}"
+    return 0
+fi
+
+echo "# Multiple barcode subfolders detected, merging FASTQ files"
+mkdir -p "$final_dir"
+
+# Create associative array to track files by name
+declare -A file_list
+
+# First pass: collect all unique filenames
+for bc_folder in "${bc_folders[@]}"; do
+    if [ -d "$bc_folder" ]; then
+        while IFS= read -r -d '' file; do
+            filename=$(basename "$file")
+            if [[ "$filename" =~ \.(fastq|fq)(\.gz)?$ ]]; then
+                file_list["$filename"]=1
+            fi
+        done < <(find "$bc_folder" -type f \( -name "*.fastq*" -o -name "*.fq*" \) -print0 2>/dev/null)
+    fi
+done
+
+# Second pass: merge files with same names
+for filename in "${!file_list[@]}"; do
+    local output_file="$final_dir/$filename"
+    local temp_files=()
+    
+    # Collect all files with this name from different bc folders
+    for bc_folder in "${bc_folders[@]}"; do
+        local source_file="$bc_folder/$filename"
+        if [ -f "$source_file" ]; then
+            temp_files+=("$source_file")
+        fi
+    done
+    
+    if [ ${#temp_files[@]} -eq 0 ]; then
+        continue
+    elif [ ${#temp_files[@]} -eq 1 ]; then
+        # Only one file with this name, just copy it
+        echo "  Copying $filename (single file)"
+        cp "${temp_files[0]}" "$output_file"
+    else
+        # Multiple files with same name, concatenate them
+        echo "  Merging $filename (${#temp_files[@]} files)"
+        
+        # Handle compressed vs uncompressed files
+        if [[ "$filename" =~ \.gz$ ]]; then
+            # Compressed files - concatenate compressed data
+            cat "${temp_files[@]}" > "$output_file"
+        else
+            # Uncompressed files - simple concatenation
+            cat "${temp_files[@]}" > "$output_file"
+        fi
+    fi
+done
+
+echo "# FASTQ files processed successfully in: $final_dir"
+echo "# Total unique files processed: ${#file_list[@]}"
+
+# Write the flag file upon successful completion
+touch "${flag_file}"
+}
+
 
 
 ##################################
@@ -534,39 +712,6 @@ time CopyRunData || { echo "CopyRunData failed"; exit 1; }
 time SkeraSplit   || { echo "SkeraSplit failed"; exit 1; }
 time Lima         || { echo "Lima failed"; exit 1; }
 time bam2fastq    || { echo "bam2fastq failed"; exit 1; }
+time post_processing || { echo "post_processing failed"; exit 1; }
 
 exit 0
-
-########## future additions
-
-copy the lima simmaries to data_transfer
-
-#!/bin/bash
-
-# List of barcodes
-barcodes=(bc01 bc02 bc03 bc04)
-
-# Output directory
-outdir="data_transfer/demux_results"
-mkdir -p "$outdir"
-
-# Loop over each barcode
-for bc in "${barcodes[@]}"; do
-    for file in HiFi.lima.counts HiFi.lima.summary barcode_QC_Kinnex.html; do
-        src="lima_results/${bc}/${file}"
-        if [[ -f "$src" ]]; then
-            # Insert barcode before extension
-            base="${file%.*}"
-            ext="${file##*.}"
-            # Handle files with no extension
-            if [[ "$base" == "$file" ]]; then
-                newname="${base}_${bc}"
-            else
-                newname="${base}_${bc}.${ext}"
-            fi
-            cp "$src" "$outdir/$newname"
-        else
-            echo "Warning: $src does not exist."
-        fi
-    done
-done
