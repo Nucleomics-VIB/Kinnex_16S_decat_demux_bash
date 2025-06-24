@@ -8,6 +8,7 @@
 # rewritten to improve file structure: v1.1.0
 # added samplesheet validation: v1.2.2
 # added post_processing: v2.0.0
+# added archive creation + md5sum;: v2.1.0
 #
 # visit our Git: https://github.com/Nucleomics-VIB
 
@@ -25,7 +26,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-version="2025-06-24; 2.0.0"
+version="2025-06-24; 2.1.0"
 
 # script basedir
 BASEDIR=$(dirname "$(readlink -f "$0")")
@@ -499,6 +500,9 @@ fi
 # Merge FASTQ results if multiple barcode subfolders exist
 merge_fastq_results
 
+# Create delivery archive
+create_archive
+
 echo "# Post-processing completed successfully"
 
 # Write the flag file upon successful completion
@@ -600,6 +604,79 @@ done
 
 echo "# FASTQ files processed successfully in: $final_dir"
 echo "# Total unique files processed: ${#file_list[@]}"
+
+# Write the flag file upon successful completion
+touch "${flag_file}"
+}
+
+function create_archive() {
+local flag_file="${outfolder}/create_archive_ok"
+local archive_name
+local archive_path
+
+archive_name="${movie}.tar.gz"
+archive_path="${outfolder}/${archive_name}"
+
+echo -e "\n# Creating delivery archive"
+
+# Check if the flag file exists and echo "already done" if it does
+if [ -f "${flag_file}" ]; then
+    echo -e "\ncreate_archive: already done."
+    return 0 # Exit the function successfully
+fi
+
+# Check if required directories exist
+local qc_dir="${outfolder}/run_QC"
+local final_dir="${outfolder}/fastq_final"
+
+if [ ! -d "$qc_dir" ] && [ ! -d "$final_dir" ]; then
+    echo "# Neither run_QC nor fastq_final directories exist, skipping archive creation"
+    return 0
+fi
+
+echo "# Creating archive: $archive_name"
+
+# Change to output directory to create relative paths in the archive
+cd "${outfolder}" || {
+    echo "Error: Cannot change to output directory: ${outfolder}"
+    return 1
+}
+
+# Build tar command with existing directories
+local tar_args=()
+if [ -d "run_QC" ]; then
+    tar_args+=("run_QC")
+    echo "# Including run_QC directory in archive"
+fi
+
+if [ -d "fastq_final" ]; then
+    tar_args+=("fastq_final")
+    echo "# Including fastq_final directory in archive"
+fi
+
+# Create the archive
+if [ ${#tar_args[@]} -gt 0 ]; then
+    # Join array elements with commas for display
+    local dirs_list
+    dirs_list=$(printf "%s, " "${tar_args[@]}")
+    dirs_list=${dirs_list%, }  # Remove trailing comma and space
+    echo "# Creating archive with directories: ${dirs_list}"
+    echo "# Creating archive and computing md5sum simultaneously"
+    
+    # Create archive and compute md5sum in one pass using tee and md5sum
+    if tar -cz "${tar_args[@]}" | tee "${archive_name}" | md5sum | sed "s/-$/${archive_name}/" > "${archive_name}.md5"; then
+        echo "# Archive created successfully: ${archive_path}"
+        echo "# Archive size: $(du -h "${archive_name}" | cut -f1)"
+        echo "# MD5 checksum saved to: ${archive_name}.md5"
+        echo "# MD5: $(cat "${archive_name}.md5")"
+    else
+        echo "Error: Failed to create archive or compute md5sum"
+        return 1
+    fi
+else
+    echo "# No directories to archive"
+    return 0
+fi
 
 # Write the flag file upon successful completion
 touch "${flag_file}"
@@ -713,5 +790,6 @@ time SkeraSplit   || { echo "SkeraSplit failed"; exit 1; }
 time Lima         || { echo "Lima failed"; exit 1; }
 time bam2fastq    || { echo "bam2fastq failed"; exit 1; }
 time post_processing || { echo "post_processing failed"; exit 1; }
+time create_archive || { echo "create_archive failed"; exit 1; }
 
 exit 0
