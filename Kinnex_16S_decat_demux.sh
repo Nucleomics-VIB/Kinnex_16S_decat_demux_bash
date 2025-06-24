@@ -315,10 +315,41 @@ for i in "${barcode_indices[@]}"; do
     echo "# ${cmd}"
     eval ${cmd}
 
-    echo -e "# Creating barcode QC report"
+  else
+    echo "One or both files are missing"
+    return 1 # Exit the function with an error status
+  fi
+
+echo -e "\n"
+
+done
+
+# Write the flag file upon successful completion
+touch "${flag_file}"
+}
+
+function BarcodeQC() {
+echo -e "\n# Creating barcode QC reports"
+
+for i in "${barcode_indices[@]}"; do
+  local flag_file="${outfolder}/${lima_results}/bc0${i}/BarcodeQC_ok"
+  
+  # Check if the flag file exists for this specific barcode
+  if [ -f "${flag_file}" ]; then
+      echo -e "\nBarcodeQC for bc0${i}: already done."
+      continue # Skip this barcode and move to the next
+  fi
+
+  samplesheet_var="bcM000${i}_samplesheet"
+  samplesheet_file="${outfolder}/${inputs}/${!samplesheet_var}"
+  lima_counts_file="${outfolder}/${lima_results}/bc0${i}/HiFi.lima.counts"
+  
+  if [[ -f "${samplesheet_file}" && -f "${lima_counts_file}" ]]; then
+
+    echo -e "# Creating barcode QC report for bc0${i}"
     projectnum=$(basename ${samplesheet_file} | cut -d "_" -f 1 | tr -d "\n")
     cmd="${BASEDIR}/scripts/barcode_QC_Kinnex.sh \
-      -i ${outfolder}/${lima_results}/bc0${i}/HiFi.lima.counts \
+      -i ${lima_counts_file} \
       -r ${BASEDIR}/scripts/barcode_QC_Kinnex.Rmd \
       -m ${mincnt} \
       -f ${qc_format} \
@@ -333,22 +364,24 @@ for i in "${barcode_indices[@]}"; do
       else
         echo "Warning: No barcode_QC_Kinnex.* files found to move"
       fi
+      
+      # Write the flag file upon successful completion for this barcode
+      touch "${flag_file}"
     else
-      echo "Error: barcode_QC_Kinnex.sh failed"
+      echo "Error: barcode_QC_Kinnex.sh failed for bc0${i}"
       return 1
     fi
 
   else
-    echo "One or both files are missing"
+    echo "One or both files are missing for bc0${i}"
+    echo "  Samplesheet: ${samplesheet_file}"
+    echo "  Lima counts: ${lima_counts_file}"
     return 1 # Exit the function with an error status
   fi
 
 echo -e "\n"
 
 done
-
-# Write the flag file upon successful completion
-touch "${flag_file}"
 }
 
 function bam2fastq() {
@@ -452,7 +485,8 @@ find "${outfolder}/${lima_results}" -maxdepth 2 -type f \
     -not -name "HiFi.lima.report" \
     -not -name "*-log.txt" \
     -not -name "*.xml" \
-    -not -name "*.json" | while read -r file; do
+    -not -name "*.json" \
+    -not -name "BarcodeQC_ok" | while read -r file; do
     
     # Extract barcode pattern (bc0X) from the file path
     barcode_pattern=$(echo "$file" | grep -o 'bc0[0-4]')
@@ -499,9 +533,6 @@ fi
 
 # Merge FASTQ results if multiple barcode subfolders exist
 merge_fastq_results
-
-# Create delivery archive
-create_archive
 
 echo "# Post-processing completed successfully"
 
@@ -788,6 +819,7 @@ PrintConfig
 time CopyRunData || { echo "CopyRunData failed"; exit 1; }
 time SkeraSplit   || { echo "SkeraSplit failed"; exit 1; }
 time Lima         || { echo "Lima failed"; exit 1; }
+time BarcodeQC     || { echo "BarcodeQC failed"; exit 1; }
 time bam2fastq    || { echo "bam2fastq failed"; exit 1; }
 time post_processing || { echo "post_processing failed"; exit 1; }
 time create_archive || { echo "create_archive failed"; exit 1; }

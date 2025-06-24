@@ -51,7 +51,7 @@ The read count per barcode was obtained from the regular **lima** demultiplexing
 
 * (*`r basename(params$inputFile)`*)
 
-```{r load data}
+```{r load data, results='hide'}
 # load PB Lima demux counts
 ccs_summary <- suppressMessages(
   read_delim(params$inputFile,
@@ -67,9 +67,9 @@ ccs_summary <- ccs_summary[ccs_summary$IdxFirst != -1, ]
 # load samplesheet to get sample names from
 # First, check if the file ends with a newline and add debugging
 samplesheet_content <- readLines(params$samplesheet, warn = FALSE)
-cat("Last few lines of samplesheet:\n")
-cat(tail(samplesheet_content, 3), sep = "\n")
-cat("Number of lines read:", length(samplesheet_content), "\n")
+#cat("Last few lines of samplesheet:\n")
+#cat(tail(samplesheet_content, 3), sep = "\n")
+#cat("Number of lines read:", length(samplesheet_content), "\n")
 
 samplenames <- suppressMessages(
   read_delim(params$samplesheet,
