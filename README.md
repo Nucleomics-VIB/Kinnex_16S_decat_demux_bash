@@ -3,6 +3,15 @@
 Kinnex 16S deconcatenation and demultiplexing 
 ==========
 
+> [!IMPORTANT]
+> **This repository is kept as legacy.** It holds the first, bash version of the Kinnex
+> 16S decat/demux workflow. For new work and for tooling, use the more recent engine
+> [kinnex-masseq-decat-demux-engine](https://github.com/Nucleomics-VIB/kinnex-masseq-decat-demux-engine).
+> That engine also processes Kinnex 16S data: 16S is its default setup (12-mer MAS array,
+> Kinnex 16S 384-plex barcodes). The web tool and run queue
+> [kinnex-masseq-decat-demux](https://github.com/Nucleomics-VIB/kinnex-masseq-decat-demux)
+> runs that engine.
+
 ## Revio run folder structure
 
 A typical run folder contains the following subfolders:
